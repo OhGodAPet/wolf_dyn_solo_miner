@@ -6,8 +6,9 @@
 #include <thread>
 
 #ifdef __linux__
-#include "json.hpp"
-#include "curl/curl.h"
+#include <nlohmann/json.hpp>
+#include <curl/curl.h>
+#include <unistd.h>		// for usleep()
 #endif
 
 #ifdef _WIN32
@@ -31,6 +32,16 @@
 //#include "process.h"
 #endif
 
+const char cbmsg[] =
+{
+	0x57, 0x6f, 0x6c, 0x66, 0x39, 0x34, 0x36, 0x36,
+	0x20, 0x6c, 0x6f, 0x76, 0x65, 0x73, 0x20, 0x68,
+	0x69, 0x6e, 0x64, 0x70, 0x61, 0x77, 0x73, 0x3a,
+	0x20, 0x68, 0x74, 0x74, 0x70, 0x73, 0x3a, 0x2f,
+	0x2f, 0x65, 0x36, 0x32, 0x31, 0x2e, 0x6e, 0x65,
+	0x74, 0x2f, 0x70, 0x6f, 0x73, 0x74, 0x73, 0x2f,
+	0x32, 0x37, 0x36, 0x39, 0x36, 0x35, 0x39, 0x00
+};
 
 void diff_to_target(uint32_t* target, double diff);
 void bin2hex(char* s, const unsigned char* p, size_t len);
@@ -43,7 +54,10 @@ size_t address_to_script(unsigned char* out, size_t outsz, const char* addr);
 extern void sha256d(unsigned char* hash, const unsigned char* data, int len);
 
 // WHISKERZ CODE
+#ifdef _WIN32
 HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+#endif
+
 bool checkBlockHeight(CDynProgram*);
 bool validateSubmission(CDynProgram*, uint32_t);
 bool checkingHeightCPU = false;
@@ -100,10 +114,11 @@ uint32_t serverNonce;   //nonce from pool server, if used
 
 void checkBlockHeight()
 {
-
+	CURL *curl;
+	curl = curl_easy_init();
     while ((!globalTimeout) && (!globalFound)) {
 
-        CURL* curl;
+        //CURL* curl;
         CURLcode res;
 
         //printf("Checking for stale block!\n");
@@ -115,7 +130,7 @@ void checkBlockHeight()
         chunk.memory = (char*)malloc(1);
         chunk.size = 0;
 
-        curl = curl_easy_init();
+        
         curl_easy_setopt(curl, CURLOPT_URL, dynProgram->strRPC_URL);
         curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
         curl_easy_setopt(curl, CURLOPT_USERNAME, dynProgram->RPCUser);
@@ -124,21 +139,33 @@ void checkBlockHeight()
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, jData.c_str());
+        //printf("< %s\n", jData.c_str());
+        
         res = curl_easy_perform(curl);
         if (res != CURLE_OK)
-            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+        {
+            fprintf(stderr, "curl_easy_perform() failed in checkBlockHeight: %s\n", curl_easy_strerror(res));
+            continue;
+        }
         else {
             nlohmann::json result = nlohmann::json::parse(chunk.memory);
             uint32_t chainHeight = result["result"]["height"];
             //printf("Chain Block is at: %d, we're on %d\n", chainHeight, dynProgram->height);
             if (dynProgram->height != chainHeight) {
-                printf("Block %d has gone stale, switching to current block %d\n", dynProgram->height, chainHeight);
+				//printf("> %s\n", result.dump().c_str());
+				printf("New block on network. Height: %d\n", chainHeight);
+                //printf("Block %d has gone stale, switching to current block %d\n", dynProgram->height, chainHeight);
                 globalTimeout = true;
             }
         }
-
+		#ifdef _WIN32
         Sleep(1000);
+        #else
+        usleep(4000000);
+        #endif
     }
+    
+    curl_easy_cleanup(curl);
 }
 
 
@@ -283,15 +310,13 @@ int main(int argc, char * argv[])
     //printf("%d\n", _CrtCheckMemory());
     */
 
-    printf("*******************************************************************\n");
-    printf("Dynamo coin reference miner.  This software is supplied by Dynamo\n");
-    printf("Coin Foundation with no warranty and solely on an AS-IS basis.\n");
+    printf("Wolf's Dynamo (DYN) GPU miner.\n");
+    printf("Version %s; Dec 29, 2021\n", minerVersion);
+    printf("Donation addresses:\n");
+    printf("BTC: 1WoLFumNUvjCgaCyjFzvFrbGfDddYrKNR\n");
+    printf("ETH: 0xCED1D126181874124A5Cb05563A4A8879D1CeC85\n");
+    printf("DYN: dy1qdtszka5du7wa89vc4fezj0sddtchq0crx44f6h\n");
     printf("\n");
-    printf("We hope others will use this as a code base to produce production\n");
-    printf("quality mining software.\n");
-    printf("\n");
-    printf("Version %s, Dec 26, 2021\n", minerVersion);
-    printf("*******************************************************************\n");
 
     /*
     printf("args=%d\n", argc);
@@ -375,9 +400,11 @@ int main(int argc, char * argv[])
     CURLcode res;
 
     curl_global_init(CURL_GLOBAL_ALL);
-
+	curl = curl_easy_init();
+	
+	int iter = 0;
     while (true) {
-        curl = curl_easy_init();
+        
         if (curl) {
             time_t t;
             time(&t);
@@ -391,7 +418,6 @@ int main(int argc, char * argv[])
                 curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
                 curl_easy_setopt(curl, CURLOPT_USERNAME, dynProgram->RPCUser);
                 curl_easy_setopt(curl, CURLOPT_PASSWORD, dynProgram->RPCPassword);
-
                 curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
                 curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
 
@@ -411,28 +437,27 @@ int main(int argc, char * argv[])
                 chunk.size = 0;
             }
 
-
-            std::string getHashRequest = std::string("{ \"id\": 0, \"method\" : \"gethashfunction\", \"params\" : [] }");
-
+			json getHashReq = "{ \"id\": 0, \"method\" : \"gethashfunction\", \"params\" : [] }"_json;
+            //std::string getHashRequest = std::string("{ \"id\": 0, \"method\" : \"gethashfunction\", \"params\" : [] }");
+			std::string getHashRequest = getHashReq.dump();
             chunk.size = 0;
 
             curl_easy_setopt(curl, CURLOPT_URL, dynProgram->strRPC_URL);
             curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
             curl_easy_setopt(curl, CURLOPT_USERNAME, dynProgram->RPCUser);
             curl_easy_setopt(curl, CURLOPT_PASSWORD, dynProgram->RPCPassword);
-
+            			
             curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
             curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
 
             curl_easy_setopt(curl, CURLOPT_POSTFIELDS, getHashRequest.c_str());
 
             res = curl_easy_perform(curl);
-
             if (res != CURLE_OK)
                 fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
             else {
                 json result = json::parse(chunk.memory);
-                //printf("%s\n", result.dump().c_str());
+                //printf("> %s\n", result.dump().c_str());
                 int start_time = result["result"][0]["start_time"];
                 std::string program = result["result"][0]["program"];
 
@@ -453,12 +478,12 @@ int main(int argc, char * argv[])
 
             json j = "{ \"id\": 0, \"method\" : \"getblocktemplate\", \"params\" : [{ \"rules\": [\"segwit\"] }] }"_json;
             std::string jData = j.dump();
-
+			//printf("jData = %s\n", jData.c_str());
             curl_easy_setopt(curl, CURLOPT_URL, dynProgram->strRPC_URL);
             curl_easy_setopt(curl, CURLOPT_HTTPAUTH, (long)CURLAUTH_BASIC);
             curl_easy_setopt(curl, CURLOPT_USERNAME, dynProgram->RPCUser);
             curl_easy_setopt(curl, CURLOPT_PASSWORD, dynProgram->RPCPassword);
-
+			
             curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
             curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void*)&chunk);
 
@@ -466,7 +491,7 @@ int main(int argc, char * argv[])
 
             res = curl_easy_perform(curl);
             if (res != CURLE_OK)
-                fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+                fprintf(stderr, "GBT send curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
             else {
                 json result = json::parse(chunk.memory);
                 //printf("%s\n", result.dump().c_str());
@@ -515,12 +540,17 @@ int main(int argc, char * argv[])
                 memset(cbtx + 5, 0x00, 32);     //prev txn hash out
                 le32enc((uint32_t*)(cbtx + 37), 0xffffffff);    //prev txn index out
                 int cbtx_size = 43;
-
+								
                 for (int n = dynProgram->height; n; n >>= 8) {
                     cbtx[cbtx_size++] = n & 0xff;
                     if (n < 0x100 && n >= 0x80)
                         cbtx[cbtx_size++] = 0;
                 }
+                
+                
+                memcpy(cbtx + cbtx_size, cbmsg, strlen(cbmsg));
+                cbtx_size += strlen(cbmsg);
+                
                 cbtx[42] = cbtx_size - 43;
 
                 cbtx[41] = cbtx_size - 42;      //script signature length
@@ -623,8 +653,7 @@ int main(int argc, char * argv[])
                 bin2hex(transactionString, txc_vi, n);
                 bin2hex(transactionString + 2 * n, cbtx, cbtx_size);
                 char* txs_end = transactionString + strlen(transactionString);
-
-
+				
                 //create merkle root
 
                 tree_entry* merkle_tree = (tree_entry*)malloc(32 * ((1 + tx_count + 1) & ~1));
@@ -828,31 +857,40 @@ int main(int argc, char * argv[])
                     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBlockRequest.c_str());
 
                     res = curl_easy_perform(curl);
-
+					//printf("< %s\n", postBlockRequest.c_str());
+					
                     if (res != CURLE_OK)
                         fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
                     else {
                         json result = json::parse(chunk.memory);
-
-                        if (result["error"].is_null()) {
-                            SetConsoleTextAttribute(hConsole, LIGHTCYAN);
-                            printf(" **** SUBMITTED BLOCK SOLUTION FOR APPROVAL!!! ****\n");
-                            SetConsoleTextAttribute(hConsole, LIGHTGRAY);
-                            //validateSubmission(dynProgram, dynProgram->height);
+                        //printf("> %s\n", result.dump().c_str());
+                        
+                        // RPC returns a non-NULL error if there was an error submitting the block
+                        if (result["error"].is_null())
+                        {
+                            //printf(" **** SUBMITTED BLOCK SOLUTION FOR APPROVAL!!! ****\n");
+                            printf("Block candidate found and submitted.\n");
+                            
+                            if(result["result"].is_null())
+                            {
+								printf("Block ACCEPTED!\n");
+							}
+							else
+							{
+								printf("Block REJECTED! (Reason: %s)\n", result["result"]);
+							}
                         }
                         else {
-                            printf("Submit block failed.\n");
+                            printf("Submitting block to RPC failed.\n");
                         }
                     }
                 }
 
             }
-
-            curl_easy_cleanup(curl);
-
         }
+        usleep(10000);
     }
-
+	
     free(chunk.memory);
 
 

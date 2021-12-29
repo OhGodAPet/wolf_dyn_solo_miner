@@ -37,7 +37,7 @@ constexpr float gb = 1073741824;
 constexpr float mb = 1048576;
 constexpr float kb = 1024;
 
-constexpr char minerVersion[] = "0.20";
+constexpr char minerVersion[] = "0.22.0";
 // WHISKERZ
 
 
@@ -61,11 +61,13 @@ public:
 
     uint32_t numOpenCLDevices;
     cl_device_id* openCLDevices;
-
+	uint32_t GPUCount;
+	
     cl_mem* clGPUProgramBuffer;
 
     uint32_t hashResultSize;
     cl_mem* clGPUHashResultBuffer;
+    cl_mem *clNonceReturnBuf;
     uint32_t** buffHashResult;
 
     uint32_t headerBuffSize;
